@@ -53,6 +53,12 @@
 #include <mach/vcio.h>
 #include <mach/system.h>
 
+#include <linux/can/platform/mcp251x.h>
+#include <linux/gpio.h>
+#include <linux/irq.h>
+
+#define MCP2515_CAN_INT_GPIO_PIN 25
+
 #include "bcm2708.h"
 #include "armctrl.h"
 #include "clock.h"
@@ -494,10 +500,20 @@ static struct platform_device bcm2708_spi_device = {
 	.resource = bcm2708_spi_resources,
 };
 
+static struct mcp251x_platform_data mcp251x_info = {
+   .oscillator_frequency   = 20000000,
+   .board_specific_setup   = NULL,
+   .irq_flags              = IRQF_TRIGGER_FALLING,
+   .power_enable           = NULL,
+   .transceiver_enable     = NULL,
+};
+
 static struct spi_board_info bcm2708_spi_devices[] = {
 	{
-		.modalias = "spidev",
-		.max_speed_hz = 500000,
+		.modalias = "mcp2515",
+		.max_speed_hz = 10000000,
+		.platform_data = &mcp251x_info,
+		/* .irq = unknown , defined later thru bcm2708_mcp251x_init */
 		.bus_num = 0,
 		.chip_select = 0,
 		.mode = SPI_MODE_0,
@@ -508,6 +524,12 @@ static struct spi_board_info bcm2708_spi_devices[] = {
 		.chip_select = 1,
 		.mode = SPI_MODE_0,
 	}
+};
+
+static void __init bcm2708_mcp251x_init(void) {
+   bcm2708_spi_devices[0].irq = gpio_to_irq(MCP2515_CAN_INT_GPIO_PIN);
+   printk(KERN_INFO " BCM2708 mcp251x_init:  got IRQ %d for MCP2515\n", bcm2708_spi_devices[0].irq);
+   return;
 };
 
 static struct resource bcm2708_bsc0_resources[] = {
@@ -619,6 +641,7 @@ void __init bcm2708_init(void)
 	system_serial_low = serial;
 
 #ifdef CONFIG_SPI
+	bcm2708_mcp251x_init();
 	spi_register_board_info(bcm2708_spi_devices,
 			ARRAY_SIZE(bcm2708_spi_devices));
 #endif
