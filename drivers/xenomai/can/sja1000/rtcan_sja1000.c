@@ -1,0 +1,1 @@
+/opt/raspberrypi/xenomai-2.6/ksrc/drivers/can/sja1000/rtcan_sja1000.c

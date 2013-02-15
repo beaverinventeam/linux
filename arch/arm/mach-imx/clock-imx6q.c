@@ -1721,6 +1721,16 @@ DEF_NG_CLK(ipu2_di0_pre_clk,	&pll3_pfd_540m);
 DEF_NG_CLK(ipu2_di1_pre_clk,	&pll3_pfd_540m);
 DEF_NG_CLK(asrc_serial_clk,	&pll3_usb_otg);
 
+static unsigned long twd_clk_get_rate(struct clk *clk)
+{
+	return clk_get_rate(clk->parent) / 2;
+}
+
+static struct clk twd_clk = {
+	.parent = &arm_clk,
+	.get_rate = twd_clk_get_rate,
+};
+
 #define DEF_CLK(name, er, es, p, s)			\
 	static struct clk name = {			\
 		.enable_reg	= er,			\
@@ -1911,6 +1921,7 @@ static struct clk_lookup lookups[] = {
 	_REGISTER_CLOCK(NULL, "gpmi_io_clk", gpmi_io_clk),
 	_REGISTER_CLOCK(NULL, "usboh3_clk", usboh3_clk),
 	_REGISTER_CLOCK(NULL, "sata_clk", sata_clk),
+	_REGISTER_CLOCK(NULL, "smp_twd", twd_clk),
 };
 
 int imx6q_set_lpm(enum mxc_cpu_pwr_mode mode)
@@ -2024,7 +2035,14 @@ int __init mx6q_clocks_init(void)
 	base = of_iomap(np, 0);
 	WARN_ON(!base);
 	irq = irq_of_parse_and_map(np, 0);
-	mxc_timer_init(&gpt_clk, base, irq);
+	{
+		struct resource res;
+
+		if (of_address_to_resource(np, 0, &res))
+			res.start = 0;
+
+		mxc_timer_init(&gpt_clk, base, res.start, irq);
+	}
 
 	return 0;
 }

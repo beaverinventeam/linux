@@ -72,8 +72,8 @@ extern unsigned long ixp4xx_exp_bus_size;
 /*
  * Clock Speed Definitions.
  */
-#define IXP4XX_PERIPHERAL_BUS_CLOCK 	(66) /* 66Mhzi APB BUS   */ 
-#define IXP4XX_UART_XTAL        	14745600
+#define IXP4XX_PERIPHERAL_BUS_CLOCK 	(66) /* 66Mhzi APB BUS   */
+#define IXP4XX_UART_XTAL		14745600
 
 /*
  * This structure provide a means for the board setup code
@@ -138,7 +138,7 @@ extern struct pci_bus *ixp4xx_scan_bus(int nr, struct pci_sys_data *sys);
  */
 /* GPIO pin types */
 #define IXP4XX_GPIO_OUT 		0x1
-#define IXP4XX_GPIO_IN  		0x2
+#define IXP4XX_GPIO_IN			0x2
 
 /* GPIO signal types */
 #define IXP4XX_GPIO_LOW			0
@@ -150,10 +150,14 @@ extern struct pci_bus *ixp4xx_scan_bus(int nr, struct pci_sys_data *sys);
 
 static inline void gpio_line_config(u8 line, u32 direction)
 {
+	unsigned long flags;
+
+	flags = hard_local_irq_save();
 	if (direction == IXP4XX_GPIO_IN)
 		*IXP4XX_GPIO_GPOER |= (1 << line);
 	else
 		*IXP4XX_GPIO_GPOER &= ~(1 << line);
+	hard_local_irq_restore(flags);
 }
 
 static inline void gpio_line_get(u8 line, int *value)
@@ -163,11 +167,14 @@ static inline void gpio_line_get(u8 line, int *value)
 
 static inline void gpio_line_set(u8 line, int value)
 {
+	unsigned long flags;
+
+	flags = hard_local_irq_save();
 	if (value == IXP4XX_GPIO_HIGH)
 	    *IXP4XX_GPIO_GPOUTR |= (1 << line);
 	else if (value == IXP4XX_GPIO_LOW)
 	    *IXP4XX_GPIO_GPOUTR &= ~(1 << line);
+	hard_local_irq_restore(flags);
 }
 
 #endif // __ASSEMBLY__
-

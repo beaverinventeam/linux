@@ -30,6 +30,7 @@
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/module.h>
+#include <linux/ipipe.h>
 #include <asm-generic/bug.h>
 #include <asm/mach/irq.h>
 
@@ -64,6 +65,9 @@ struct mxc_gpio_port {
 	int virtual_irq_start;
 	struct bgpio_chip bgc;
 	u32 both_edges;
+#ifdef CONFIG_IPIPE
+	unsigned nonroot_gpios;
+#endif /* CONFIG_IPIPE */
 };
 
 static struct mxc_gpio_hwdata imx1_imx21_gpio_hwdata = {
@@ -225,7 +229,7 @@ static void mxc_gpio_irq_handler(struct mxc_gpio_port *port, u32 irq_stat)
 		if (port->both_edges & (1 << irqoffset))
 			mxc_flip_edge(port, irqoffset);
 
-		generic_handle_irq(gpio_irq_no_base + irqoffset);
+		ipipe_handle_demuxed_irq(gpio_irq_no_base + irqoffset);
 
 		irq_stat &= ~(1 << irqoffset);
 	}
@@ -251,7 +255,10 @@ static void mx3_gpio_irq_handler(u32 irq, struct irq_desc *desc)
 static void mx2_gpio_irq_handler(u32 irq, struct irq_desc *desc)
 {
 	u32 irq_msk, irq_stat;
+	struct irq_chip *chip = irq_get_chip(irq);
 	struct mxc_gpio_port *port;
+
+	chained_irq_enter(chip, desc);
 
 	/* walk through all interrupt status registers */
 	list_for_each_entry(port, &mxc_gpio_ports, node) {
@@ -263,6 +270,8 @@ static void mx2_gpio_irq_handler(u32 irq, struct irq_desc *desc)
 		if (irq_stat)
 			mxc_gpio_irq_handler(port, irq_stat);
 	}
+
+	chained_irq_exit(chip, desc);
 }
 
 /*
@@ -465,6 +474,97 @@ static struct platform_driver mxc_gpio_driver = {
 	.probe		= mxc_gpio_probe,
 	.id_table	= mxc_gpio_devtype,
 };
+
+#if defined(CONFIG_IPIPE)
+#ifdef CONFIG_MXC_TZIC
+#include <mach/hardware.h>
+#endif /* CONFIG_MXC_TZIC */
+extern void tzic_set_irq_prio(int irq, int hi);
+extern void tzic_mute_pic(void);
+extern void tzic_unmute_pic(void);
+extern void gic_mute(void);
+extern void gic_unmute(void);
+extern void gic_set_irq_prio(int irq, int hi);
+
+static void mxc_set_irq_prio(int irq, int hi)
+{
+#ifdef CONFIG_ARM_GIC
+	gic_set_irq_prio(irq, hi);
+#elif defined(CONFIG_MXC_TZIC)
+	if (cpu_is_mx50() || cpu_is_mx51() || cpu_is_mx53())
+		tzic_set_irq_prio(irq, hi);
+#endif /* TZIC */
+}
+
+static void mxc_enable_irqdesc(struct ipipe_domain *ipd, unsigned irq)
+{
+	struct irq_desc *desc = irq_to_desc(irq);
+	struct irq_chip *chip = irq_desc_get_chip(desc);
+
+	if (chip->irq_set_type == gpio_set_irq_type) {
+		/* It is a gpio. */
+		struct mxc_gpio_port *port = irq_get_handler_data(irq);
+		u32 gpio = irq_to_gpio(irq);
+
+		if (ipd != &ipipe_root) {
+			port->nonroot_gpios |= (1 << (gpio % 32));
+			if (port->nonroot_gpios == (1 << (gpio % 32))) {
+				__ipipe_irqbits[(port->irq / 32)]
+					&= ~(1 << (port->irq % 32));
+				mxc_set_irq_prio(port->irq, 1);
+			}
+		}
+	} else
+		mxc_set_irq_prio(irq, ipd != &ipipe_root);
+}
+
+static void mxc_disable_irqdesc(struct ipipe_domain *ipd, unsigned irq)
+{
+	struct irq_desc *desc = irq_to_desc(irq);
+	struct irq_chip *chip = irq_desc_get_chip(desc);
+
+	if (chip->irq_set_type == gpio_set_irq_type) {
+		/* It is a gpio. */
+		struct mxc_gpio_port *port = irq_get_handler_data(irq);
+		u32 gpio = irq_to_gpio(irq);
+
+		if (ipd != &ipipe_root) {
+			port->nonroot_gpios &= ~(1 << (gpio % 32));
+			if (!port->nonroot_gpios) {
+				mxc_set_irq_prio(port->irq, 0);
+				__ipipe_irqbits[(port->irq / 32)]
+					|= (1 << (port->irq % 32));
+			}
+		}
+	} else if (ipd != &ipipe_root)
+		mxc_set_irq_prio(irq, 0);
+}
+
+void __init mxc_pic_muter_register(void)
+{
+#ifdef CONFIG_ARM_GIC
+	struct ipipe_mach_pic_muter gic_pic_muter = {
+		.enable_irqdesc = mxc_enable_irqdesc,
+		.disable_irqdesc = mxc_disable_irqdesc,
+		.mute = gic_mute,
+		.unmute = gic_unmute,
+	};
+
+	ipipe_pic_muter_register(&gic_pic_muter);
+#elif defined(CONFIG_MXC_TZIC)
+	struct ipipe_mach_pic_muter tzic_pic_muter = {
+		.enable_irqdesc = mxc_enable_irqdesc,
+		.disable_irqdesc = mxc_disable_irqdesc,
+		.mute = tzic_mute_pic,
+		.unmute = tzic_unmute_pic,
+	};
+
+	if (cpu_is_mx50() || cpu_is_mx51() || cpu_is_mx53())
+		ipipe_pic_muter_register(&tzic_pic_muter);
+#endif /* TZIC */
+}
+
+#endif /* CONFIG_IPIPE */
 
 static int __init gpio_mxc_init(void)
 {

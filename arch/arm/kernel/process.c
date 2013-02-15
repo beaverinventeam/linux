@@ -156,6 +156,34 @@ void cpu_idle_wait(void)
 	smp_call_function(do_nothing, NULL, 1);
 }
 EXPORT_SYMBOL_GPL(cpu_idle_wait);
+#ifdef CONFIG_IPIPE
+static void __ipipe_halt_root(void)
+{
+	struct ipipe_percpu_domain_data *p;
+
+	/* Emulate idle entry sequence over the root domain. */
+
+	hard_local_irq_disable();
+
+	p = ipipe_this_cpu_root_context();
+
+	trace_hardirqs_on();
+	__clear_bit(IPIPE_STALL_FLAG, &p->status);
+
+	if (unlikely(__ipipe_ipending_p(p))) {
+		__ipipe_sync_stage();
+		hard_local_irq_enable();
+	} else {
+#ifdef CONFIG_IPIPE_TRACE_IRQSOFF
+		ipipe_trace_end(0x8000000E);
+#endif /* CONFIG_IPIPE_TRACE_IRQSOFF */
+		hard_local_irq_enable();
+		arch_idle();
+	}
+}
+#else /* !CONFIG_IPIPE */
+#define __ipipe_halt_root() arch_idle()
+#endif /* !CONFIG_IPIPE */
 
 /*
  * This is our default idle handler.  We need to disable
@@ -164,7 +192,7 @@ EXPORT_SYMBOL_GPL(cpu_idle_wait);
 static void default_idle(void)
 {
 	if (!need_resched())
-		arch_idle();
+		__ipipe_halt_root();
 	local_irq_enable();
 }
 

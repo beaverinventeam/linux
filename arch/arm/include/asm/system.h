@@ -231,10 +231,19 @@ static inline void set_copro_access(unsigned int val)
  */
 extern struct task_struct *__switch_to(struct task_struct *, struct thread_info *, struct thread_info *);
 
+#ifdef CONFIG_IPIPE_WANT_PREEMPTIBLE_SWITCH
 #define switch_to(prev,next,last)					\
 do {									\
+	hard_cond_local_irq_disable();					\
 	last = __switch_to(prev,task_thread_info(prev), task_thread_info(next));	\
+	hard_cond_local_irq_enable();					\
 } while (0)
+#else /* !CONFIG_IPIPE_WANT_PREEMPTIBLE_SWITCH */
+#define switch_to(prev,next,last)					\
+do {									\
+	last = __switch_to(prev,task_thread_info(prev), task_thread_info(next)); \
+} while (0)
+#endif /* !CONFIG_IPIPE_WANT_PREEMPTIBLE_SWITCH */
 
 #if defined(CONFIG_CPU_SA1100) || defined(CONFIG_CPU_SA110)
 /*
@@ -295,17 +304,17 @@ static inline unsigned long __xchg(unsigned long x, volatile void *ptr, int size
 #error SMP is not supported on this platform
 #endif
 	case 1:
-		raw_local_irq_save(flags);
+		flags = hard_local_irq_save();
 		ret = *(volatile unsigned char *)ptr;
 		*(volatile unsigned char *)ptr = x;
-		raw_local_irq_restore(flags);
+		hard_local_irq_restore(flags);
 		break;
 
 	case 4:
-		raw_local_irq_save(flags);
+		flags = hard_local_irq_save();
 		ret = *(volatile unsigned long *)ptr;
 		*(volatile unsigned long *)ptr = x;
-		raw_local_irq_restore(flags);
+		hard_local_irq_restore(flags);
 		break;
 #else
 	case 1:

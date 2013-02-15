@@ -30,6 +30,9 @@
 
 #define MXC_GPIO_IRQ_START	MXC_INTERNAL_IRQS
 
+#ifndef ARCH_NR_GPIOS
+#define ARCH_NR_GPIOS 256
+#endif
 /*
  * The next 16 interrupts are for board specific purposes.  Since
  * the kernel can only run on one machine at a time, we can re-use
@@ -61,5 +64,9 @@ extern int imx_irq_set_priority(unsigned char irq, unsigned char prio);
 #define FIQ_START	0
 /* switch between IRQ and FIQ */
 extern int mxc_set_irq_fiq(unsigned int irq, unsigned int type);
+
+#if defined(CONFIG_SOC_IMX6Q) && defined(CONFIG_SMP)
+#include <asm/smp_twd.h>
+#endif /* CONFIG_ARCH_MX6 */
 
 #endif /* __ASM_ARCH_MXC_IRQS_H__ */

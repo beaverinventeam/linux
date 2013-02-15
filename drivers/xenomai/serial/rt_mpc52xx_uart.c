@@ -1,0 +1,1 @@
+/opt/raspberrypi/xenomai-2.6/ksrc/drivers/serial/rt_mpc52xx_uart.c

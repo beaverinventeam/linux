@@ -442,6 +442,11 @@ void omap1_init_irq(void);
 void omap2_init_irq(void);
 void omap3_init_irq(void);
 void ti816x_init_irq(void);
+
+#if defined(CONFIG_ARCH_OMAP4) && defined(CONFIG_SMP)
+#include <asm/smp_twd.h>
+#endif /* CONFIG_ARCH_OMAP4 */
+
 extern int omap_irq_pending(void);
 void omap_intc_save_context(void);
 void omap_intc_restore_context(void);

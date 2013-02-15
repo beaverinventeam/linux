@@ -1,0 +1,1 @@
+/opt/raspberrypi/xenomai-2.6/ksrc/skins/posix/cond_attr.c

@@ -26,6 +26,7 @@ struct exec_domain;
 
 #include <asm/types.h>
 #include <asm/domain.h>
+#include <ipipe/thread_info.h>
 
 typedef unsigned long mm_segment_t;
 
@@ -66,6 +67,8 @@ struct thread_info {
 	unsigned long		thumbee_state;	/* ThumbEE Handler Base register */
 #endif
 	struct restart_block	restart_block;
+
+	struct ipipe_threadinfo ipipe_data;
 };
 
 #define INIT_THREAD_INFO(tsk)						\
@@ -145,6 +148,12 @@ extern void vfp_flush_hwstate(struct thread_info *);
 #define TIF_FREEZE		19
 #define TIF_RESTORE_SIGMASK	20
 #define TIF_SECCOMP		21
+#ifdef CONFIG_IPIPE
+#define TIF_MMSWITCH_INT	22
+#ifdef CONFIG_ARM_FCSE
+#define TIF_SWITCHED		23
+#endif /* CONFIG_ARM_FCSE */
+#endif /* CONFIG_IPIPE */
 
 #define _TIF_SIGPENDING		(1 << TIF_SIGPENDING)
 #define _TIF_NEED_RESCHED	(1 << TIF_NEED_RESCHED)
@@ -155,6 +164,12 @@ extern void vfp_flush_hwstate(struct thread_info *);
 #define _TIF_FREEZE		(1 << TIF_FREEZE)
 #define _TIF_RESTORE_SIGMASK	(1 << TIF_RESTORE_SIGMASK)
 #define _TIF_SECCOMP		(1 << TIF_SECCOMP)
+#ifdef CONFIG_IPIPE
+#define _TIF_MMSWITCH_INT	(1 << TIF_MMSWITCH_INT)
+#ifdef CONFIG_ARM_FCSE
+#define _TIF_SWITCHED		(1 << TIF_SWITCHED)
+#endif /* CONFIG_ARM_FCSE */
+#endif /* CONFIG_IPIPE */
 
 /*
  * Change these and you break ASM code in entry-common.S

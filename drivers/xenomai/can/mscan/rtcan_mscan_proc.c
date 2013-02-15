@@ -1,0 +1,1 @@
+/opt/raspberrypi/xenomai-2.6/ksrc/drivers/can/mscan/rtcan_mscan_proc.c

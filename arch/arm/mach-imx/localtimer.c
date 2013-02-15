@@ -25,8 +25,17 @@ int __cpuinit local_timer_setup(struct clock_event_device *evt)
 
 	np = of_find_compatible_node(NULL, NULL, "arm,smp-twd");
 	if (!twd_base) {
+		struct resource res;
+
 		twd_base = of_iomap(np, 0);
 		WARN_ON(!twd_base);
+
+#ifdef CONFIG_IPIPE
+		if (of_address_to_resource(np, 0, &res))
+			res.start = 0;
+
+		gt_setup(res.start - 0x400, 32);
+#endif
 	}
 	evt->irq = irq_of_parse_and_map(np, 0);
 	twd_timer_setup(evt);

@@ -25,8 +25,22 @@
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/io.h>
+#include <linux/module.h>
+#include <linux/ipipe.h>
+#include <linux/ipipe_tickdev.h>
 
 #include <asm/hardware/arm_timer.h>
+
+#ifdef CONFIG_IPIPE
+static struct __ipipe_tscinfo tsc_info = {
+	.type = IPIPE_TSC_TYPE_FREERUNNING_COUNTDOWN,
+	.u = {
+		{
+			.mask = 0xffffffff,
+		},
+	},
+};
+#endif /* CONFIG_IPIPE */
 
 static long __init sp804_get_clock_rate(const char *name)
 {
@@ -67,7 +81,8 @@ static long __init sp804_get_clock_rate(const char *name)
 	return rate;
 }
 
-void __init sp804_clocksource_init(void __iomem *base, const char *name)
+void __init sp804_clocksource_init(void __iomem *base,
+				   unsigned long phys, const char *name)
 {
 	long rate = sp804_get_clock_rate(name);
 
@@ -83,11 +98,24 @@ void __init sp804_clocksource_init(void __iomem *base, const char *name)
 
 	clocksource_mmio_init(base + TIMER_VALUE, name,
 		rate, 200, 32, clocksource_mmio_readl_down);
+
+#ifdef CONFIG_IPIPE
+	tsc_info.freq = rate;
+	tsc_info.counter_vaddr = (unsigned long)base + TIMER_VALUE;
+	tsc_info.u.counter_paddr = phys + TIMER_VALUE;
+	__ipipe_tsc_register(&tsc_info);
+#endif
 }
 
 
 static void __iomem *clkevt_base;
 static unsigned long clkevt_reload;
+
+static inline void sp804_timer_ack(void)
+{
+	/* clear the interrupt */
+	writel(1, clkevt_base + TIMER_INTCLR);
+}
 
 /*
  * IRQ handler for the timer
@@ -96,8 +124,10 @@ static irqreturn_t sp804_timer_interrupt(int irq, void *dev_id)
 {
 	struct clock_event_device *evt = dev_id;
 
-	/* clear the interrupt */
-	writel(1, clkevt_base + TIMER_INTCLR);
+	if (!clockevent_ipipe_stolen(evt))
+		sp804_timer_ack();
+
+	__ipipe_tsc_update();
 
 	evt->event_handler(evt);
 
@@ -142,6 +172,12 @@ static int sp804_set_next_event(unsigned long next,
 	return 0;
 }
 
+#ifdef CONFIG_IPIPE
+static struct ipipe_timer sp804_itimer = {
+	.ack = sp804_timer_ack,
+};
+#endif /* CONFIG_IPIPE */
+
 static struct clock_event_device sp804_clockevent = {
 	.shift		= 32,
 	.features       = CLOCK_EVT_FEAT_PERIODIC | CLOCK_EVT_FEAT_ONESHOT,
@@ -149,6 +185,9 @@ static struct clock_event_device sp804_clockevent = {
 	.set_next_event	= sp804_set_next_event,
 	.rating		= 300,
 	.cpumask	= cpu_all_mask,
+#ifdef CONFIG_IPIPE
+	.ipipe_timer    = &sp804_itimer,
+#endif /* CONFIG_IPIPE */
 };
 
 static struct irqaction sp804_timer_irq = {
@@ -175,6 +214,10 @@ void __init sp804_clockevents_init(void __iomem *base, unsigned int irq,
 	evt->mult = div_sc(rate, NSEC_PER_SEC, evt->shift);
 	evt->max_delta_ns = clockevent_delta2ns(0xffffffff, evt);
 	evt->min_delta_ns = clockevent_delta2ns(0xf, evt);
+
+#ifdef CONFIG_IPIPE
+	sp804_itimer.irq = irq;
+#endif /* CONFIG_IPIPE */
 
 	setup_irq(irq, &sp804_timer_irq);
 	clockevents_register_device(evt);

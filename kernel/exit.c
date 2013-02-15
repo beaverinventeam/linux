@@ -958,6 +958,7 @@ NORET_TYPE void do_exit(long code)
 		acct_process();
 	trace_sched_process_exit(tsk);
 
+  	__ipipe_report_exit(tsk);
 	exit_sem(tsk);
 	exit_shm(tsk);
 	exit_files(tsk);

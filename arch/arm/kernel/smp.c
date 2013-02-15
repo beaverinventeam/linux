@@ -55,6 +55,12 @@ enum ipi_msg_type {
 	IPI_CALL_FUNC,
 	IPI_CALL_FUNC_SINGLE,
 	IPI_CPU_STOP,
+	IPI_CPU_DUMP,
+#ifdef CONFIG_IPIPE
+	IPI_IPIPE_FIRST,
+	IPI_IPIPE_VNMI = IPI_IPIPE_FIRST + IPIPE_SERVICE_VNMI - IPIPE_FIRST_IPI,
+	IPI_IPIPE_LAST = IPI_IPIPE_FIRST + IPIPE_LAST_IPI - IPIPE_FIRST_IPI,
+#endif /* CONFIG_IPIPE */
 };
 
 int __cpuinit __cpu_up(unsigned int cpu)
@@ -304,7 +310,7 @@ asmlinkage void __cpuinit secondary_start_kernel(void)
 	atomic_inc(&mm->mm_count);
 	current->active_mm = mm;
 	cpumask_set_cpu(cpu, mm_cpumask(mm));
-	cpu_switch_mm(mm->pgd, mm);
+	cpu_switch_mm(mm->pgd, mm, 1);
 	enter_lazy_tlb(mm, current);
 	local_flush_tlb_all();
 
@@ -471,10 +477,54 @@ static DEFINE_PER_CPU(struct clock_event_device, percpu_clockevent);
 static void ipi_timer(void)
 {
 	struct clock_event_device *evt = &__get_cpu_var(percpu_clockevent);
+#ifdef CONFIG_IPIPE
+#ifndef CONFIG_IPIPE_ARM_KUSER_TSC
+	__ipipe_mach_update_tsc();
+#else /* CONFIG_IPIPE_ARM_KUSER_TSC */
+	__ipipe_tsc_update();
+#endif /* CONFIG_IPIPE_ARM_KUSER_TSC */
+#endif /* CONFIG_IPIPE */
 	irq_enter();
 	evt->event_handler(evt);
 	irq_exit();
 }
+
+#ifdef CONFIG_IPIPE
+void ipipe_send_ipi(unsigned ipi, cpumask_t cpumask)
+{
+	enum ipi_msg_type msg = ipi - IPIPE_FIRST_IPI + IPI_IPIPE_FIRST;
+	smp_cross_call(&cpumask, msg);
+}
+EXPORT_SYMBOL_GPL(ipipe_send_ipi);
+
+ /* hw IRQs off */
+asmlinkage void __exception __ipipe_grab_ipi(unsigned svc, struct pt_regs *regs)
+{
+	int virq;
+
+	/*
+	 * Virtual NMIs ignore the root domain's stall
+	 * bit. When caught over high priority
+	 * domains, virtual VMIs are pipelined the
+	 * usual way as normal interrupts.
+	 */
+	if (svc == IPI_IPIPE_VNMI && ipipe_root_p)
+		__ipipe_do_vnmi(IPIPE_SERVICE_VNMI, NULL);
+	else if (svc >= IPI_IPIPE_FIRST && svc <= IPI_IPIPE_LAST) {
+		virq = svc - IPI_IPIPE_FIRST + IPIPE_FIRST_IPI;
+		__ipipe_dispatch_irq(virq, IPIPE_IRQF_NOACK);
+	} else
+		__ipipe_mach_relay_ipi(svc, ipipe_processor_id());
+
+	__ipipe_exit_irq(regs);
+}
+
+void  __ipipe_root_ipi(unsigned int ipinr, void *cookie)
+{
+	handle_IPI(ipinr, __this_cpu_ptr(&ipipe_percpu.tick_regs));
+}
+
+#endif /* CONFIG_IPIPE */
 
 #ifdef CONFIG_GENERIC_CLOCKEVENTS_BROADCAST
 static void smp_timer_broadcast(const struct cpumask *mask)

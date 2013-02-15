@@ -32,6 +32,8 @@
 #include <linux/io.h>
 #include <linux/module.h>
 #include <linux/spi/spi.h>
+#include <linux/ipipe.h>
+#include <linux/ipipe_tickdev.h>
 
 #include <linux/version.h>
 #include <linux/clkdev.h>
@@ -149,6 +151,12 @@ void __init bcm2708_map_io(void)
 
 // The STC is a free running counter that increments at the rate of 1MHz
 #define STC_FREQ_HZ 1000000
+
+#define SYSTEM_CLOCK_FREQ_HZ		250000000
+
+// The ARM Timer is a free running counter that increments at the rate of
+// the system clock (without pre-scaling)
+#define ARM_TIMER_FREQ_HZ				SYSTEM_CLOCK_FREQ_HZ
 
 static cycle_t stc_read_cycles(struct clocksource *cs)
 {
@@ -686,12 +694,27 @@ static int timer_set_next_event(unsigned long cycles,
 	return 0;
 }
 
+static inline void bcm2708_timer_ack(void)
+{
+	writel(1 << 3, __io_address(ST_BASE + 0x00));	/* stcs clear timer int */
+}
+
+#ifdef CONFIG_IPIPE
+static struct ipipe_timer bcm2708_itimer = {
+	.irq = IRQ_TIMER3,
+	.ack = bcm2708_timer_ack,
+};
+#endif /* CONFIG_IPIPE */
+
 static struct clock_event_device timer0_clockevent = {
 	.name = "timer0",
 	.shift = 32,
 	.features = CLOCK_EVT_FEAT_ONESHOT,
 	.set_mode = timer_set_mode,
 	.set_next_event = timer_set_next_event,
+#ifdef CONFIG_IPIPE
+	.ipipe_timer    = &bcm2708_itimer,
+#endif /* CONFIG_IPIPE */
 };
 
 /*
@@ -701,7 +724,10 @@ static irqreturn_t bcm2708_timer_interrupt(int irq, void *dev_id)
 {
 	struct clock_event_device *evt = &timer0_clockevent;
 
-	writel(1 << 3, __io_address(ST_BASE + 0x00));	/* stcs clear timer int */
+	if (!clockevent_ipipe_stolen(evt))
+		bcm2708_timer_ack();
+
+	__ipipe_tsc_update();
 
 	evt->event_handler(evt);
 
@@ -713,6 +739,38 @@ static struct irqaction bcm2708_timer_irq = {
 	.flags = IRQF_DISABLED | IRQF_TIMER | IRQF_IRQPOLL,
 	.handler = bcm2708_timer_interrupt,
 };
+
+#ifdef CONFIG_IPIPE
+static struct __ipipe_tscinfo tsc_info = {
+	.type = IPIPE_TSC_TYPE_FREERUNNING,
+	.u = {
+		{
+			.mask = 0xffffffff,
+		},
+	},
+};
+
+static void bcm2708_xenomai_tsc_init(void)
+{
+#ifdef CONFIG_PM
+	tsc_info.freq = STC_FREQ_HZ;
+	tsc_info.counter_vaddr = (unsigned long)__io_address(ST_BASE + 4);
+	tsc_info.u.fr.counter = (unsigned *)(ST_BASE + 4);
+#else
+	/*
+	 * Start the ARM timer
+	 */
+	unsigned int control_reg = TIMER_CTRL_ENAFREE | TIMER_CTRL_DBGHALT |
+		TIMER_CTRL_32BIT;
+	writel(control_reg, __io_address(ARM_T_CONTROL));
+
+	tsc_info.freq = ARM_TIMER_FREQ_HZ;
+	tsc_info.counter_vaddr = (unsigned long)__io_address(ARM_T_FREECNT);
+	tsc_info.u.fr.counter = (unsigned *)(ARMCTRL_TIMER0_1_BASE + 0x20);
+#endif /* CONFIG_PM */
+	__ipipe_tsc_register(&tsc_info);
+}
+#endif /* CONFIG_IPIPE */
 
 /*
  * Set up timer interrupt, and return the current time in seconds.
@@ -743,6 +801,10 @@ static void __init bcm2708_timer_init(void)
 
 	timer0_clockevent.cpumask = cpumask_of(0);
 	clockevents_register_device(&timer0_clockevent);
+
+#ifdef CONFIG_IPIPE
+	bcm2708_xenomai_tsc_init();
+#endif
 }
 
 struct sys_timer bcm2708_timer = {

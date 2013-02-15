@@ -1,0 +1,1 @@
+/opt/raspberrypi/xenomai-2.6/ksrc/skins/native/snippets/user_irq.c

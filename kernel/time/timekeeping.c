@@ -1243,3 +1243,9 @@ void xtime_update(unsigned long ticks)
 	do_timer(ticks);
 	write_sequnlock(&xtime_lock);
 }
+
+struct timespec get_wall_to_monotonic(void)
+{
+	/* xtime_lock must be held. */
+	return wall_to_monotonic;
+}

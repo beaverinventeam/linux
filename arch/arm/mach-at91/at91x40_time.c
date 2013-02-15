@@ -27,6 +27,7 @@
 #include <mach/hardware.h>
 #include <asm/mach/time.h>
 #include <mach/at91_tc.h>
+#include "at91_ipipe.h"
 
 /*
  *	3 counter/timer units present.
@@ -42,6 +43,7 @@ static unsigned long at91x40_gettimeoffset(void)
 
 static irqreturn_t at91x40_timer_interrupt(int irq, void *dev_id)
 {
+	__ipipe_tsc_update();
 	at91_sys_read(AT91_TC + AT91_TC_CLK1BASE + AT91_TC_SR);
 	timer_tick();
 	return IRQ_HANDLED;
@@ -71,10 +73,10 @@ void __init at91x40_timer_init(void)
 	setup_irq(AT91X40_ID_TC1, &at91x40_timer_irq);
 
 	at91_sys_write(AT91_TC + AT91_TC_CLK1BASE + AT91_TC_CCR, (AT91_TC_SWTRG | AT91_TC_CLKEN));
+	at91_ipipe_init(NULL);
 }
 
 struct sys_timer at91x40_timer = {
 	.init	= at91x40_timer_init,
 	.offset	= at91x40_gettimeoffset,
 };
-

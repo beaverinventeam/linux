@@ -29,12 +29,12 @@ asmlinkage void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 			break;
 
 		if (irqnr > 15 && irqnr < 1021)
-			handle_IRQ(irqnr, regs);
+			ipipe_handle_multi_irq(irqnr, regs);
 #ifdef CONFIG_SMP
 		else {
 			writel_relaxed(irqstat, gic_cpu_base_addr +
 						GIC_CPU_EOI);
-			handle_IPI(irqnr, regs);
+			ipipe_handle_multi_ipi(irqnr, regs);
 		}
 #endif
 	} while (1);

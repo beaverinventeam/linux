@@ -30,7 +30,7 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr,
 {
 	struct mm_struct *mm = current->mm;
 	struct vm_area_struct *vma;
-	unsigned long start_addr;
+	unsigned long start_addr = addr;
 	int do_align = 0;
 	int aliasing = cache_is_vipt_aliasing();
 
@@ -41,6 +41,9 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr,
 	if (aliasing)
 		do_align = filp || (flags & MAP_SHARED);
 
+#ifdef CONFIG_ARM_FCSE
+	start_addr = addr;
+#endif /* CONFIG_ARM_FCSE */
 	/*
 	 * We enforce the MAP_FIXED case.
 	 */
@@ -48,7 +51,7 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr,
 		if (aliasing && flags & MAP_SHARED &&
 		    (addr - (pgoff << PAGE_SHIFT)) & (SHMLBA - 1))
 			return -EINVAL;
-		return addr;
+		goto found_addr;
 	}
 
 	if (len > TASK_SIZE)
@@ -63,13 +66,13 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr,
 		vma = find_vma(mm, addr);
 		if (TASK_SIZE - len >= addr &&
 		    (!vma || addr + len <= vma->vm_start))
-			return addr;
+			goto found_addr;
 	}
 	if (len > mm->cached_hole_size) {
-	        start_addr = addr = mm->free_area_cache;
+		start_addr = addr = mm->free_area_cache;
 	} else {
-	        start_addr = addr = TASK_UNMAPPED_BASE;
-	        mm->cached_hole_size = 0;
+		start_addr = addr = TASK_UNMAPPED_BASE;
+		mm->cached_hole_size = 0;
 	}
 	/* 8 bits of randomness in 20 address space bits */
 	if ((current->flags & PF_RANDOMIZE) &&
@@ -101,14 +104,31 @@ full_search:
 			 * Remember the place where we stopped the search:
 			 */
 			mm->free_area_cache = addr + len;
-			return addr;
+			goto found_addr;
 		}
 		if (addr + mm->cached_hole_size < vma->vm_start)
-		        mm->cached_hole_size = vma->vm_start - addr;
+			mm->cached_hole_size = vma->vm_start - addr;
 		addr = vma->vm_end;
 		if (do_align)
 			addr = COLOUR_ALIGN(addr, pgoff);
 	}
+
+  found_addr:
+#ifdef CONFIG_ARM_FCSE
+	{
+		unsigned long new_addr = fcse_check_mmap_addr(mm, start_addr,
+							      addr, len, flags);
+		if (new_addr != addr) {
+			addr = new_addr;
+			if (!(addr & ~PAGE_MASK)) {
+				start_addr = TASK_UNMAPPED_BASE;
+				mm->cached_hole_size = 0;
+				goto full_search;
+			}
+		}
+	}
+#endif /* CONFIG_ARM_FCSE */
+	return addr;
 }
 
 
